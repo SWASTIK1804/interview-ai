@@ -10,18 +10,42 @@ const interviewReportModel = require("../models/interviewReport.model")
  */
 async function generateInterViewReportController(req, res) {
 
-    const resumeContent = await (new pdfParse.PDFParse(Uint8Array.from(req.file.buffer))).getText()
-    const { selfDescription, jobDescription } = req.body
+    const selfDescription = req.body.selfDescription?.trim()
+    const jobDescription = req.body.jobDescription?.trim()
+    let resumeText = ""
+
+    if (!jobDescription) {
+        return res.status(400).json({
+            message: "Job description is required."
+        })
+    }
+
+    if (!req.file && !selfDescription) {
+        return res.status(400).json({
+            message: "Please upload a PDF resume or provide a self description."
+        })
+    }
+
+    if (req.file) {
+        try {
+            const resumeContent = await (new pdfParse.PDFParse(Uint8Array.from(req.file.buffer))).getText()
+            resumeText = resumeContent.text?.trim() || ""
+        } catch (err) {
+            return res.status(400).json({
+                message: "Could not read the uploaded PDF. Please upload a valid text-based PDF resume."
+            })
+        }
+    }
 
     const interViewReportByAi = await generateInterviewReport({
-        resume: resumeContent.text,
+        resume: resumeText,
         selfDescription,
         jobDescription
     })
 
     const interviewReport = await interviewReportModel.create({
         user: req.user.id,
-        resume: resumeContent.text,
+        resume: resumeText,
         selfDescription,
         jobDescription,
         ...interViewReportByAi
@@ -75,7 +99,10 @@ async function getAllInterviewReportsController(req, res) {
 async function generateResumePdfController(req, res) {
     const { interviewReportId } = req.params
 
-    const interviewReport = await interviewReportModel.findById(interviewReportId)
+    const interviewReport = await interviewReportModel.findOne({
+        _id: interviewReportId,
+        user: req.user.id
+    })
 
     if (!interviewReport) {
         return res.status(404).json({

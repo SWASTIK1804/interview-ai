@@ -1,22 +1,26 @@
-import { useContext, useEffect } from "react";
+import { useCallback, useContext, useEffect } from "react";
 import { AuthContext } from "../auth.context";
-import { login, register, logout, getMe } from "../services/auth.api";
+import { login, register, logout, getMe, getApiErrorMessage } from "../services/auth.api";
 
 
 
 export const useAuth = () => {
 
     const context = useContext(AuthContext)
-    const { user, setUser, loading, setLoading } = context
+    const { user, setUser, loading, setLoading, error, setError } = context
 
 
     const handleLogin = async ({ email, password }) => {
         setLoading(true)
+        setError("")
         try {
             const data = await login({ email, password })
             setUser(data.user)
-        } catch (err) {
-
+            return true
+        } catch (error) {
+            setUser(null)
+            setError(getApiErrorMessage(error))
+            return false
         } finally {
             setLoading(false)
         }
@@ -24,11 +28,15 @@ export const useAuth = () => {
 
     const handleRegister = async ({ username, email, password }) => {
         setLoading(true)
+        setError("")
         try {
             const data = await register({ username, email, password })
             setUser(data.user)
-        } catch (err) {
-
+            return true
+        } catch (error) {
+            setUser(null)
+            setError(getApiErrorMessage(error))
+            return false
         } finally {
             setLoading(false)
         }
@@ -36,31 +44,33 @@ export const useAuth = () => {
 
     const handleLogout = async () => {
         setLoading(true)
+        setError("")
         try {
-            const data = await logout()
+            await logout()
             setUser(null)
-        } catch (err) {
-
+            return true
+        } catch (error) {
+            setError(getApiErrorMessage(error))
+            return false
         } finally {
             setLoading(false)
         }
     }
 
-    useEffect(() => {
-
-        const getAndSetUser = async () => {
-            try {
-
-                const data = await getMe()
-                setUser(data.user)
-            } catch (err) { } finally {
-                setLoading(false)
-            }
+    const getAndSetUser = useCallback(async () => {
+        try {
+            const data = await getMe()
+            setUser(data.user)
+        } catch {
+            setUser(null)
+        } finally {
+            setLoading(false)
         }
+    }, [ setLoading, setUser ])
 
+    useEffect(() => {
         getAndSetUser()
+    }, [ getAndSetUser ])
 
-    }, [])
-
-    return { user, loading, handleRegister, handleLogin, handleLogout }
+    return { user, loading, error, setError, handleRegister, handleLogin, handleLogout }
 }

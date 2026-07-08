@@ -3,6 +3,33 @@ const bcrypt = require("bcryptjs")
 const jwt = require("jsonwebtoken")
 const tokenBlacklistModel = require("../models/blacklist.model")
 
+function getCookieOptions() {
+    return {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 24 * 60 * 60 * 1000
+    }
+}
+
+function getClearCookieOptions() {
+    return {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production"
+    }
+}
+
+function getTokenExpiry(token) {
+    const decoded = jwt.decode(token)
+
+    if (decoded && decoded.exp) {
+        return new Date(decoded.exp * 1000)
+    }
+
+    return new Date(Date.now() + 24 * 60 * 60 * 1000)
+}
+
 /**
  * @name registerUserController
  * @description register a new user, expects username, email and password in the request body
@@ -10,11 +37,19 @@ const tokenBlacklistModel = require("../models/blacklist.model")
  */
 async function registerUserController(req, res) {
 
-    const { username, email, password } = req.body
+    const username = req.body.username?.trim()
+    const email = req.body.email?.trim().toLowerCase()
+    const { password } = req.body
 
     if (!username || !email || !password) {
         return res.status(400).json({
             message: "Please provide username, email and password"
+        })
+    }
+
+    if (password.length < 6) {
+        return res.status(400).json({
+            message: "Password must be at least 6 characters long."
         })
     }
 
@@ -42,7 +77,7 @@ async function registerUserController(req, res) {
         { expiresIn: "1d" }
     )
 
-    res.cookie("token", token)
+    res.cookie("token", token, getCookieOptions())
 
 
     res.status(201).json({
@@ -64,7 +99,14 @@ async function registerUserController(req, res) {
  */
 async function loginUserController(req, res) {
 
-    const { email, password } = req.body
+    const email = req.body.email?.trim().toLowerCase()
+    const { password } = req.body
+
+    if (!email || !password) {
+        return res.status(400).json({
+            message: "Please provide email and password"
+        })
+    }
 
     const user = await userModel.findOne({ email })
 
@@ -88,7 +130,7 @@ async function loginUserController(req, res) {
         { expiresIn: "1d" }
     )
 
-    res.cookie("token", token)
+    res.cookie("token", token, getCookieOptions())
     res.status(200).json({
         message: "User loggedIn successfully.",
         user: {
@@ -109,10 +151,19 @@ async function logoutUserController(req, res) {
     const token = req.cookies.token
 
     if (token) {
-        await tokenBlacklistModel.create({ token })
+        await tokenBlacklistModel.updateOne(
+            { token },
+            {
+                $setOnInsert: {
+                    token,
+                    expiresAt: getTokenExpiry(token)
+                }
+            },
+            { upsert: true }
+        )
     }
 
-    res.clearCookie("token")
+    res.clearCookie("token", getClearCookieOptions())
 
     res.status(200).json({
         message: "User logged out successfully"
@@ -127,6 +178,12 @@ async function logoutUserController(req, res) {
 async function getMeController(req, res) {
 
     const user = await userModel.findById(req.user.id)
+
+    if (!user) {
+        return res.status(404).json({
+            message: "User not found."
+        })
+    }
 
 
 

@@ -7,6 +7,16 @@ const ai = new GoogleGenAI({
     apiKey: process.env.GOOGLE_GENAI_API_KEY
 })
 
+function parseJsonResponse(response, fallbackMessage) {
+    try {
+        return JSON.parse(response.text)
+    } catch (err) {
+        const error = new Error(fallbackMessage)
+        error.statusCode = 502
+        throw error
+    }
+}
+
 
 const interviewReportSchema = z.object({
     matchScore: z.number().describe("A score between 0 and 100 indicating how well the candidate's profile matches the job describe"),
@@ -50,7 +60,7 @@ async function generateInterviewReport({ resume, selfDescription, jobDescription
         }
     })
 
-    return JSON.parse(response.text)
+    return parseJsonResponse(response, "AI returned an invalid interview report. Please try again.")
 
 
 }
@@ -58,22 +68,27 @@ async function generateInterviewReport({ resume, selfDescription, jobDescription
 
 
 async function generatePdfFromHtml(htmlContent) {
-    const browser = await puppeteer.launch()
-    const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: "networkidle0" })
+    let browser
 
-    const pdfBuffer = await page.pdf({
-        format: "A4", margin: {
-            top: "20mm",
-            bottom: "20mm",
-            left: "15mm",
-            right: "15mm"
+    try {
+        browser = await puppeteer.launch()
+        const page = await browser.newPage()
+        await page.setJavaScriptEnabled(false)
+        await page.setContent(htmlContent, { waitUntil: "networkidle0", timeout: 30000 })
+
+        return await page.pdf({
+            format: "A4", margin: {
+                top: "20mm",
+                bottom: "20mm",
+                left: "15mm",
+                right: "15mm"
+            }
+        })
+    } finally {
+        if (browser) {
+            await browser.close()
         }
-    })
-
-    await browser.close()
-
-    return pdfBuffer
+    }
 }
 
 async function generateResumePdf({ resume, selfDescription, jobDescription }) {
@@ -105,7 +120,7 @@ async function generateResumePdf({ resume, selfDescription, jobDescription }) {
     })
 
 
-    const jsonContent = JSON.parse(response.text)
+    const jsonContent = parseJsonResponse(response, "AI returned an invalid resume. Please try again.")
 
     const pdfBuffer = await generatePdfFromHtml(jsonContent.html)
 
